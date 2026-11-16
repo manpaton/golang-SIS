@@ -115,3 +115,67 @@ func TestMultipleTasks(t *testing.T) {
 		t.Error("task 2: result must stay nil")
 	}
 }
+
+func TestQueueFull(t *testing.T) {
+	svc := NewService(PasswordProcessor{})
+
+	for i := 0; i < 10; i++ {
+		task, _ := svc.Create("ValidPass123!")
+		if err := svc.Submit(task.ID); err != nil {
+			t.Fatalf("неожиданная ошибка при заполнении очереди: %v", err)
+		}
+	}
+
+	task11, _ := svc.Create("ValidPass123!")
+	err := svc.Submit(task11.ID)
+
+	if !errors.Is(err, ErrQueueFull) {
+		t.Errorf("ожидалась ошибка ErrQueueFull, получили: %v", err)
+	}
+}
+
+func TestSubmitAfterStop(t *testing.T) {
+	svc := NewService(PasswordProcessor{})
+
+	svc.Stop()
+
+	task, _ := svc.Create("ValidPass123!")
+	err := svc.Submit(task.ID)
+
+	if !errors.Is(err, ErrStopped) {
+		t.Errorf("ожидалась ошибка ErrStopped, получили: %v", err)
+	}
+}
+
+func TestConcurrentProcessing(t *testing.T) {
+	svc := NewService(PasswordProcessor{})
+	
+	svc.Start(3)
+
+	var ids []int
+	for i := 0; i < 5; i++ {
+		task, err := svc.Create("GoRules2026!") 
+		if err != nil {
+			t.Fatalf("ошибка создания: %v", err)
+		}
+		if err := svc.Submit(task.ID); err != nil {
+			t.Fatalf("ошибка отправки в очередь: %v", err)
+		}
+		ids = append(ids, task.ID)
+	}
+
+	svc.Stop()
+
+	for _, id := range ids {
+		got, err := svc.Get(id)
+		if err != nil {
+			t.Fatalf("ошибка получения задачи %d: %v", id, err)
+		}
+		if got.Status != StatusCompleted {
+			t.Errorf("задача %d: ожидался статус completed, получили %s", id, got.Status)
+		}
+		if got.Result == nil {
+			t.Errorf("задача %d: результат nil", id)
+		}
+	}
+}

@@ -1,7 +1,8 @@
 package main
 
-import "unicode"
-
+import (
+    "unicode"
+)
 type Processor interface {
 	Process(password string) (Result, error)
 }
