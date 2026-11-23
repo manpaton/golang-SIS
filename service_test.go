@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"sync"
 	"testing"
 )
 
@@ -149,12 +150,12 @@ func TestSubmitAfterStop(t *testing.T) {
 
 func TestConcurrentProcessing(t *testing.T) {
 	svc := NewService(PasswordProcessor{})
-	
+
 	svc.Start(3)
 
 	var ids []int
 	for i := 0; i < 5; i++ {
-		task, err := svc.Create("GoRules2026!") 
+		task, err := svc.Create("GoRules2026!")
 		if err != nil {
 			t.Fatalf("ошибка создания: %v", err)
 		}
@@ -178,4 +179,104 @@ func TestConcurrentProcessing(t *testing.T) {
 			t.Errorf("задача %d: результат nil", id)
 		}
 	}
+}
+
+type blockingProcessor struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (b *blockingProcessor) Process(password string) (Result, error) {
+	if err := ValidatePassword(password); err != nil {
+		return Result{}, err
+	}
+	b.started <- struct{}{}
+	<-b.release
+	return Result{Length: len([]rune(password))}, nil
+}
+
+func TestConcurrentOverlapAndInvalidSubmit(t *testing.T) {
+	proc := &blockingProcessor{
+		started: make(chan struct{}, 2),
+		release: make(chan struct{}),
+	}
+	svc := NewService(proc)
+	svc.Start(2)
+	t1, err := svc.Create("ValidPass123!")
+	if err != nil {
+		t.Fatalf("ошибка создания задачи: %v", err)
+	}
+	t2, err := svc.Create("AnotherValidPass456!")
+	if err != nil {
+		t.Fatalf("ошибка создания задачи: %v", err)
+	}
+
+	if err := svc.Submit(t1.ID); err != nil {
+		t.Fatalf("ошибка отправки задачи 1: %v", err)
+	}
+
+	if err := svc.Submit(t1.ID); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("ожидалась ошибка ErrInvalidTransition при повторном Submit, получили: %v", err)
+	}
+
+	if err := svc.Submit(t2.ID); err != nil {
+		t.Fatalf("ошибка отправки задачи 2: %v", err)
+	}
+
+	<-proc.started
+	<-proc.started
+	close(proc.release)
+
+	for _, id := range []int{t1.ID, t2.ID} {
+		for {
+			got, err := svc.Get(id)
+			if err != nil {
+				t.Fatalf("ошибка получения задачи %d: %v", id, err)
+			}
+			if got.Status == StatusCompleted {
+				if got.Result == nil {
+					t.Errorf("задача %d: результат nil", id)
+				}
+				break
+			}
+		}
+	}
+
+	if err := svc.Submit(t1.ID); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("ожидалась ошибка ErrInvalidTransition после завершения задачи, получили: %v", err)
+	}
+
+	svc.Stop()
+
+}
+
+func TestConcurrent(t *testing.T) {
+	svc := NewService(PasswordProcessor{})
+	svc.Start(3)
+
+	const total = 10
+	var wg sync.WaitGroup
+	wg.Add(total)
+
+	for i := 0; i < total; i++ {
+		go func(idx int) {
+			defer wg.Done()
+
+			task, err := svc.Create("ConcurrentPass123!")
+			if err != nil {
+				t.Errorf("ошибка создания задачи (итерация %d): %v", idx, err)
+				return
+			}
+			if err := svc.Submit(task.ID); err != nil {
+				t.Errorf("ошибка отправки задачи (итерация %d): %v", idx, err)
+				return
+			}
+			if _, err := svc.Get(task.ID); err != nil {
+				t.Errorf("ошибка получения задачи (итерация %d): %v", idx, err)
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	svc.Stop()
 }

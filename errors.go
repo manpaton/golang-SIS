@@ -6,6 +6,6 @@ var (
 	ErrInvalidInput      = errors.New("invalid input")
 	ErrNotFound          = errors.New("task not found")
 	ErrInvalidTransition = errors.New("invalid state transition")
-	ErrQueueFull = errors.New("queue is full")
-	ErrStopped   = errors.New("service stopped")
+	ErrQueueFull         = errors.New("queue is full")
+	ErrStopped           = errors.New("service stopped")
 )

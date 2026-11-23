@@ -9,7 +9,7 @@ type Service struct {
 	tasks     map[int]*Task
 	nextID    int
 	processor Processor
-	mu sync.RWMutex
+	mu        sync.RWMutex
 
 	queue   chan int
 	wg      sync.WaitGroup
@@ -17,7 +17,7 @@ type Service struct {
 }
 
 func NewService(p Processor) *Service {
-		return &Service{
+	return &Service{
 		tasks:     make(map[int]*Task),
 		nextID:    1,
 		processor: p,
@@ -61,7 +61,7 @@ func (s *Service) process(id int, from Status) error {
 		s.mu.Unlock()
 		return fmt.Errorf("%w: id %d", ErrNotFound, id)
 	}
-	if t.Status != from  {
+	if t.Status != from {
 		s.mu.Unlock()
 		return fmt.Errorf("%w: cannot process task in status %q", ErrInvalidTransition, t.Status)
 	}
@@ -88,17 +88,16 @@ func (s *Service) Process(id int) error {
 
 func (s *Service) Start(workers int) {
 	for i := 0; i < workers; i++ {
-		s.wg.Add(1) 
-		
+		s.wg.Add(1)
+
 		go func() {
-			defer s.wg.Done() 
+			defer s.wg.Done()
 			for id := range s.queue {
 				_ = s.process(id, StatusQueued)
 			}
 		}()
 	}
 }
-
 
 func (s *Service) Submit(id int) error {
 	s.mu.Lock()
@@ -112,7 +111,7 @@ func (s *Service) Submit(id int) error {
 	if !ok {
 		return fmt.Errorf("%w: id %d", ErrNotFound, id)
 	}
-	
+
 	if t.Status != StatusPending {
 		return fmt.Errorf("%w: cannot submit task in status %q", ErrInvalidTransition, t.Status)
 	}
@@ -133,7 +132,7 @@ func (s *Service) Stop() {
 		return
 	}
 	s.stopped = true
-	
+
 	close(s.queue)
 	s.mu.Unlock()
 
